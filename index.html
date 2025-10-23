@@ -77,6 +77,84 @@
             border-radius: 4px;
             overflow-x: auto;
         }
+        .timeline-controls {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .timeline-controls h3 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .time-display .current-time {
+            font-weight: bold;
+            color: #333;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .slider {
+            flex: 1;
+            height: 8px;
+            border-radius: 4px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+            border: none;
+        }
+        .playback-controls {
+            display: flex;
+            gap: 10px;
+        }
+        .playback-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .playback-btn:hover {
+            background: #45a049;
+        }
+        .playback-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .snapshot-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
         .axis-label {
             font-size: 14px;
             font-weight: bold;
@@ -126,10 +204,12 @@
             <h3>Expected HyperLiquid JSON Format:</h3>
             <pre class="code-sample">
 {
+  "time": "2025-09-01T23:00:01.824781641",  // ISO timestamp
   "raw": {
     "channel": "l2Book",
     "data": {
       "coin": "kSHIB",
+      "time": 1756767599936,  // Unix timestamp (ms)
       "levels": [
         [ // Bids (Buy Orders)
           {"px": "0.011957", "sz": "110036.0", "n": 2},  // Price, Size, Number of Orders
@@ -143,6 +223,26 @@
     }
   }
 }</pre>
+        </div>
+        
+        <div class="timeline-controls" id="timelineControls" style="display: none;">
+            <h3>Timeline Navigation</h3>
+            <div class="time-display">
+                <div>
+                    <strong>Current Time:</strong> <span id="currentTime" class="current-time">-</span>
+                </div>
+                <div class="snapshot-info">
+                    Snapshot <span id="snapshotIndex">0</span> of <span id="totalSnapshots">0</span>
+                </div>
+            </div>
+            <div class="slider-container">
+                <input type="range" id="timelineSlider" class="slider" min="0" max="0" value="0">
+            </div>
+            <div class="playback-controls">
+                <button id="playBtn" class="playback-btn">▶ Play</button>
+                <button id="prevBtn" class="playback-btn">◀ Previous</button>
+                <button id="nextBtn" class="playback-btn">Next ▶</button>
+            </div>
         </div>
         
         <div class="metrics">
@@ -189,9 +289,19 @@
             .attr("class", "tooltip")
             .style("opacity", 0);
 
+        // Global state for timeline
+        let allSnapshots = [];
+        let currentSnapshotIndex = 0;
+        let playbackInterval = null;
+        let isPlaying = false;
+
         function processOrderbook(data) {
             const snapshot = JSON.parse(data);
             const levels = snapshot.raw.data.levels;
+            
+            // Extract time information
+            const isoTime = snapshot.time || null;
+            const unixTime = snapshot.raw.data.time || null;
             
             // Process bids and asks
             let bids = [];
@@ -221,7 +331,36 @@
                 });
             });
 
-            return { bids, asks };
+            return { bids, asks, isoTime, unixTime };
+        }
+        
+        function formatTime(isoTime, unixTime) {
+            if (isoTime) {
+                // Format ISO time for display
+                const date = new Date(isoTime);
+                return date.toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    fractionalSecondDigits: 3
+                });
+            } else if (unixTime) {
+                // Format Unix timestamp
+                const date = new Date(unixTime);
+                return date.toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    fractionalSecondDigits: 3
+                });
+            }
+            return 'No timestamp';
         }
 
         function updateMetrics(bids, asks) {
@@ -372,6 +511,68 @@
                 .on("mouseout", hideTooltip);
         }
 
+        // Timeline control functions
+        function loadSnapshot(index) {
+            if (index < 0 || index >= allSnapshots.length) return;
+            
+            currentSnapshotIndex = index;
+            const snapshot = allSnapshots[index];
+            const { bids, asks, isoTime, unixTime } = processOrderbook(snapshot);
+            
+            updateMetrics(bids, asks);
+            updateVisualization(bids, asks);
+            
+            // Update time display
+            document.getElementById('currentTime').textContent = formatTime(isoTime, unixTime);
+            document.getElementById('snapshotIndex').textContent = index + 1;
+            document.getElementById('timelineSlider').value = index;
+        }
+        
+        function playSnapshots() {
+            if (isPlaying) {
+                // Stop playback
+                clearInterval(playbackInterval);
+                isPlaying = false;
+                document.getElementById('playBtn').textContent = '▶ Play';
+                document.getElementById('playBtn').disabled = false;
+            } else {
+                // Start playback
+                isPlaying = true;
+                document.getElementById('playBtn').textContent = '⏸ Pause';
+                
+                playbackInterval = setInterval(() => {
+                    if (currentSnapshotIndex >= allSnapshots.length - 1) {
+                        // End of timeline, stop playback
+                        clearInterval(playbackInterval);
+                        isPlaying = false;
+                        document.getElementById('playBtn').textContent = '▶ Play';
+                        return;
+                    }
+                    loadSnapshot(currentSnapshotIndex + 1);
+                }, 500); // 500ms between snapshots
+            }
+        }
+        
+        function previousSnapshot() {
+            if (currentSnapshotIndex > 0) {
+                loadSnapshot(currentSnapshotIndex - 1);
+            }
+        }
+        
+        function nextSnapshot() {
+            if (currentSnapshotIndex < allSnapshots.length - 1) {
+                loadSnapshot(currentSnapshotIndex + 1);
+            }
+        }
+        
+        // Setup timeline controls
+        document.getElementById('playBtn').addEventListener('click', playSnapshots);
+        document.getElementById('prevBtn').addEventListener('click', previousSnapshot);
+        document.getElementById('nextBtn').addEventListener('click', nextSnapshot);
+        document.getElementById('timelineSlider').addEventListener('input', function(e) {
+            loadSnapshot(parseInt(e.target.value));
+        });
+
         // File input handler
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
@@ -382,10 +583,21 @@
                 const lines = e.target.result.split('\n').filter(line => line.trim());
                 if (lines.length === 0) return;
 
-                // Process the first snapshot
-                const { bids, asks } = processOrderbook(lines[0]);
-                updateMetrics(bids, asks);
-                updateVisualization(bids, asks);
+                // Store all snapshots
+                allSnapshots = lines;
+                currentSnapshotIndex = 0;
+                
+                // Show timeline controls if there are multiple snapshots
+                if (allSnapshots.length > 1) {
+                    document.getElementById('timelineControls').style.display = 'block';
+                    document.getElementById('timelineSlider').max = allSnapshots.length - 1;
+                    document.getElementById('totalSnapshots').textContent = allSnapshots.length;
+                } else {
+                    document.getElementById('timelineControls').style.display = 'none';
+                }
+                
+                // Load the first snapshot
+                loadSnapshot(0);
             };
             reader.readAsText(file);
         });
