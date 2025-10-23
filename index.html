@@ -60,13 +60,32 @@
             color: #333;
             margin-top: 5px;
         }
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .code-sample {
+            background: #2d2d2d;
+            color: #cccccc;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .axis-label {
+            font-size: 12px;
+            fill: #666;
+        }
         .bids {
             fill: rgba(0, 255, 0, 0.2);
             stroke: rgb(0, 200, 0);
+            stroke-width: 2;
         }
         .asks {
             fill: rgba(255, 0, 0, 0.2);
             stroke: rgb(200, 0, 0);
+            stroke-width: 2;
         }
         .tooltip {
             position: absolute;
@@ -88,6 +107,29 @@
             <div>
                 <input type="file" id="fileInput" class="file-input" accept=".txt,.json">
             </div>
+        </div>
+        
+        <div class="info-box">
+            <h3>Expected HyperLiquid JSON Format:</h3>
+            <pre class="code-sample">
+{
+  "raw": {
+    "channel": "l2Book",
+    "data": {
+      "coin": "kSHIB",
+      "levels": [
+        [ // Bids (Buy Orders)
+          {"px": "0.011957", "sz": "110036.0", "n": 2},  // Price, Size, Number of Orders
+          ...
+        ],
+        [ // Asks (Sell Orders)
+          {"px": "0.011961", "sz": "117488.0", "n": 2},
+          ...
+        ]
+      ]
+    }
+  }
+}</pre>
         </div>
         
         <div class="metrics">
@@ -204,16 +246,18 @@
                 ])])
                 .range([height, 0]);
 
-            // Create area generators
+            // Create step area generators for a more accurate orderbook representation
             const bidArea = d3.area()
                 .x(d => xScale(d.price))
                 .y0(height)
-                .y1(d => yScale(d.cumSize));
+                .y1(d => yScale(d.cumSize))
+                .curve(d3.curveStepAfter);  // Use steps instead of curves
 
             const askArea = d3.area()
                 .x(d => xScale(d.price))
                 .y0(height)
-                .y1(d => yScale(d.cumSize));
+                .y1(d => yScale(d.cumSize))
+                .curve(d3.curveStepAfter);  // Use steps instead of curves
 
             // Add the areas
             svg.append("path")
@@ -226,16 +270,35 @@
                 .attr("class", "asks")
                 .attr("d", askArea);
 
-            // Add axes
+            // Add axes with labels
             const xAxis = d3.axisBottom(xScale).tickFormat(d3.format(".6f"));
-            const yAxis = d3.axisLeft(yScale);
+            const yAxis = d3.axisLeft(yScale).tickFormat(d => d3.format(",.0f")(d));
 
+            // X-axis
             svg.append("g")
                 .attr("transform", `translate(0,${height})`)
                 .call(xAxis);
 
+            // X-axis label
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
+                .attr("y", height + margin.bottom - 5)
+                .text("Price (USDC)");
+
+            // Y-axis
             svg.append("g")
                 .call(yAxis);
+
+            // Y-axis label
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "middle")
+                .attr("transform", "rotate(-90)")
+                .attr("x", -height / 2)
+                .attr("y", -margin.left + 15)
+                .text("Cumulative Size");
 
             // Add interactive points
             function showTooltip(event, d, type) {
