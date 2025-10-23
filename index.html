@@ -173,7 +173,7 @@
 
     <script>
         // Initialize the visualization
-        const margin = {top: 40, right: 60, bottom: 50, left: 250};
+        const margin = {top: 40, right: 60, bottom: 50, left: 100};
         const width = 1000 - margin.left - margin.right;
         const height = 500 - margin.top - margin.bottom;
 
@@ -288,7 +288,7 @@
             const yAxis = d3.axisLeft(yScale)
                 .tickFormat(d => d3.format(",.0f")(d))
                 .ticks(10)  // Limit number of ticks
-                .tickPadding(30);  // Significantly increase padding between ticks and labels
+                .tickPadding(10);  // Keep numbers close to axis
 
             // X-axis
             svg.append("g")
@@ -318,13 +318,13 @@
             yAxisG.selectAll("path")
                 .attr("class", "axis-line");
             
-            // Y-axis label
+            // Y-axis label - positioned far to the left of the axis
             svg.append("text")
                 .attr("class", "axis-label")
                 .attr("text-anchor", "middle")
                 .attr("transform", "rotate(-90)")
                 .attr("x", -height / 2)
-                .attr("y", -margin.left + 200)
+                .attr("y", -margin.left - 50)  // Position label 50px to the left of the margin
                 .text("Cumulative Size");
 
             // Add interactive points
