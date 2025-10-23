@@ -265,6 +265,7 @@
                 <div class="speed-control">
                     <label for="speedSelect">Speed:</label>
                     <select id="speedSelect" class="speed-select">
+                        <option value="real">🎯 Real Speed (Authentic Timing)</option>
                         <option value="10">Ultra Fast (10ms)</option>
                         <option value="25">Very Fast (25ms)</option>
                         <option value="50" selected>Fast (50ms)</option>
@@ -322,10 +323,13 @@
 
         // Global state for timeline
         let allSnapshots = [];
+        let snapshotTimestamps = []; // Store parsed timestamps for real-speed playback
         let currentSnapshotIndex = 0;
         let playbackInterval = null;
+        let playbackTimeout = null;
         let isPlaying = false;
         let playbackSpeed = 50; // Default to 50ms (fast, real-time feel)
+        let useRealSpeed = false;
 
         function processOrderbook(data) {
             const snapshot = JSON.parse(data);
@@ -560,10 +564,36 @@
             document.getElementById('timelineSlider').value = index;
         }
         
+        function playNextSnapshot() {
+            if (!isPlaying || currentSnapshotIndex >= allSnapshots.length - 1) {
+                // End of timeline or stopped, stop playback
+                isPlaying = false;
+                document.getElementById('playBtn').textContent = '▶ Play';
+                if (playbackInterval) clearInterval(playbackInterval);
+                if (playbackTimeout) clearTimeout(playbackTimeout);
+                return;
+            }
+            
+            loadSnapshot(currentSnapshotIndex + 1);
+            
+            if (useRealSpeed && currentSnapshotIndex < allSnapshots.length - 1) {
+                // Calculate real time difference to next snapshot
+                const currentTime = snapshotTimestamps[currentSnapshotIndex];
+                const nextTime = snapshotTimestamps[currentSnapshotIndex + 1];
+                const timeDiff = nextTime - currentTime;
+                
+                // Cap the delay at 5 seconds to avoid extremely long waits
+                const delay = Math.min(timeDiff, 5000);
+                
+                playbackTimeout = setTimeout(playNextSnapshot, delay);
+            }
+        }
+        
         function playSnapshots() {
             if (isPlaying) {
                 // Stop playback
                 clearInterval(playbackInterval);
+                clearTimeout(playbackTimeout);
                 isPlaying = false;
                 document.getElementById('playBtn').textContent = '▶ Play';
                 document.getElementById('playBtn').disabled = false;
@@ -572,34 +602,53 @@
                 isPlaying = true;
                 document.getElementById('playBtn').textContent = '⏸ Pause';
                 
-                playbackInterval = setInterval(() => {
-                    if (currentSnapshotIndex >= allSnapshots.length - 1) {
-                        // End of timeline, stop playback
-                        clearInterval(playbackInterval);
-                        isPlaying = false;
-                        document.getElementById('playBtn').textContent = '▶ Play';
-                        return;
-                    }
-                    loadSnapshot(currentSnapshotIndex + 1);
-                }, playbackSpeed); // Use current playback speed
+                if (useRealSpeed) {
+                    // Use real timing with setTimeout
+                    playNextSnapshot();
+                } else {
+                    // Use fixed interval
+                    playbackInterval = setInterval(() => {
+                        if (currentSnapshotIndex >= allSnapshots.length - 1) {
+                            // End of timeline, stop playback
+                            clearInterval(playbackInterval);
+                            isPlaying = false;
+                            document.getElementById('playBtn').textContent = '▶ Play';
+                            return;
+                        }
+                        loadSnapshot(currentSnapshotIndex + 1);
+                    }, playbackSpeed);
+                }
             }
         }
         
         function updatePlaybackSpeed() {
-            playbackSpeed = parseInt(document.getElementById('speedSelect').value);
+            const speedValue = document.getElementById('speedSelect').value;
+            
+            if (speedValue === 'real') {
+                useRealSpeed = true;
+            } else {
+                useRealSpeed = false;
+                playbackSpeed = parseInt(speedValue);
+            }
             
             // If currently playing, restart with new speed
             if (isPlaying) {
                 clearInterval(playbackInterval);
-                playbackInterval = setInterval(() => {
-                    if (currentSnapshotIndex >= allSnapshots.length - 1) {
-                        clearInterval(playbackInterval);
-                        isPlaying = false;
-                        document.getElementById('playBtn').textContent = '▶ Play';
-                        return;
-                    }
-                    loadSnapshot(currentSnapshotIndex + 1);
-                }, playbackSpeed);
+                clearTimeout(playbackTimeout);
+                
+                if (useRealSpeed) {
+                    playNextSnapshot();
+                } else {
+                    playbackInterval = setInterval(() => {
+                        if (currentSnapshotIndex >= allSnapshots.length - 1) {
+                            clearInterval(playbackInterval);
+                            isPlaying = false;
+                            document.getElementById('playBtn').textContent = '▶ Play';
+                            return;
+                        }
+                        loadSnapshot(currentSnapshotIndex + 1);
+                    }, playbackSpeed);
+                }
             }
         }
         
@@ -637,6 +686,22 @@
                 // Store all snapshots
                 allSnapshots = lines;
                 currentSnapshotIndex = 0;
+                
+                // Extract timestamps for real-speed playback
+                snapshotTimestamps = lines.map(line => {
+                    try {
+                        const snapshot = JSON.parse(line);
+                        // Try ISO timestamp first, then Unix timestamp
+                        if (snapshot.time) {
+                            return new Date(snapshot.time).getTime();
+                        } else if (snapshot.raw && snapshot.raw.data && snapshot.raw.data.time) {
+                            return snapshot.raw.data.time;
+                        }
+                        return 0;
+                    } catch (e) {
+                        return 0;
+                    }
+                });
                 
                 // Show timeline controls if there are multiple snapshots
                 if (allSnapshots.length > 1) {
