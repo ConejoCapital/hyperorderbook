@@ -132,6 +132,7 @@
         .playback-controls {
             display: flex;
             gap: 10px;
+            align-items: center;
         }
         .playback-btn {
             padding: 8px 16px;
@@ -149,6 +150,25 @@
         .playback-btn:disabled {
             background: #ccc;
             cursor: not-allowed;
+        }
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 15px;
+        }
+        .speed-control label {
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
+        .speed-select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
         }
         .snapshot-info {
             font-size: 12px;
@@ -242,6 +262,17 @@
                 <button id="playBtn" class="playback-btn">▶ Play</button>
                 <button id="prevBtn" class="playback-btn">◀ Previous</button>
                 <button id="nextBtn" class="playback-btn">Next ▶</button>
+                <div class="speed-control">
+                    <label for="speedSelect">Speed:</label>
+                    <select id="speedSelect" class="speed-select">
+                        <option value="10">Ultra Fast (10ms)</option>
+                        <option value="25">Very Fast (25ms)</option>
+                        <option value="50" selected>Fast (50ms)</option>
+                        <option value="100">Normal (100ms)</option>
+                        <option value="250">Slow (250ms)</option>
+                        <option value="500">Very Slow (500ms)</option>
+                    </select>
+                </div>
             </div>
         </div>
         
@@ -294,6 +325,7 @@
         let currentSnapshotIndex = 0;
         let playbackInterval = null;
         let isPlaying = false;
+        let playbackSpeed = 50; // Default to 50ms (fast, real-time feel)
 
         function processOrderbook(data) {
             const snapshot = JSON.parse(data);
@@ -549,7 +581,25 @@
                         return;
                     }
                     loadSnapshot(currentSnapshotIndex + 1);
-                }, 500); // 500ms between snapshots
+                }, playbackSpeed); // Use current playback speed
+            }
+        }
+        
+        function updatePlaybackSpeed() {
+            playbackSpeed = parseInt(document.getElementById('speedSelect').value);
+            
+            // If currently playing, restart with new speed
+            if (isPlaying) {
+                clearInterval(playbackInterval);
+                playbackInterval = setInterval(() => {
+                    if (currentSnapshotIndex >= allSnapshots.length - 1) {
+                        clearInterval(playbackInterval);
+                        isPlaying = false;
+                        document.getElementById('playBtn').textContent = '▶ Play';
+                        return;
+                    }
+                    loadSnapshot(currentSnapshotIndex + 1);
+                }, playbackSpeed);
             }
         }
         
@@ -569,6 +619,7 @@
         document.getElementById('playBtn').addEventListener('click', playSnapshots);
         document.getElementById('prevBtn').addEventListener('click', previousSnapshot);
         document.getElementById('nextBtn').addEventListener('click', nextSnapshot);
+        document.getElementById('speedSelect').addEventListener('change', updatePlaybackSpeed);
         document.getElementById('timelineSlider').addEventListener('input', function(e) {
             loadSnapshot(parseInt(e.target.value));
         });
